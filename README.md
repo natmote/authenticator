@@ -7,19 +7,23 @@ generating multiple Time-based One-Time Passwords, much like Google Authenticato
 
 You can change the time zone with the select button.  Then hitting the back button, will resume the app.
 
-To configure the application:
+To configure the application you need to edit the configuration.txt file
 
-1. Let's say you have secret key AXIMZYJXITSIOIJVNXOE76PEJQ 
+1. Set your timezone in configuration.txt - it's near the top, labelled 'tz'
+
+2. Let's say you have secret key AXIMZYJXITSIOIJVNXOE76PEJQ 
 On most sites, when setting up choose 'show key' when presented with the QR code.
 
-2. add it to the end of src/configuration.txt, in the format 
+3. add it to the end of configuration.txt, following the example in the format 
 label:secret
 
-3. Set your time zone (in src/configuration.h) - it's at the time under tz:
+4. repeat this for all your keys (don't forget to remove the example)
 
-4. Build and install the application.
+5. Generate the config by running ./configuration.py
 
-5. Done, you can find 'Authenticator' in your app menu for your Pebble.
+6. Build and install the application with ./waf build && python httpserver as usual
+
+7. Done, you can find 'Authenticator' in your app menu for your Pebble.
 
 The above is assuming you have the Pebble SDK installed and configured to compile watch apps.
 If not, review: http://developer.getpebble.com/1/01_GetStarted/01_Step_2
