@@ -17,14 +17,15 @@ PBL_APP_INFO(MY_UUID,
 		"Authenticator", "pokey9000/IEF/rigel314",
 		1, 1, /* App version */
 		RESOURCE_ID_IMAGE_MENU_ICON,
-		APP_INFO_STANDARD_APP);
+		APP_INFO_WATCH_FACE);
 
 Window window;
 
-TextLayer label;
-TextLayer token;
+TextLayer label0;
+TextLayer token0;
+TextLayer label1;
+TextLayer token1;
 TextLayer ticker;
-int curToken = 0;
 int tZone;
 bool changed;
 
@@ -256,20 +257,55 @@ uint32_t get_epoch_seconds() {
 	return unix_time;
 }
 
+void get_token(int index, char* text) {
+	uint32_t unix_time;
+	char sha1_time[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+	sha1nfo s;
+	uint8_t ofs;
+	uint32_t otp;
+	int i;
+
+  // TOTP uses seconds since epoch in the upper half of an 8 byte payload
+  // TOTP is HOTP with a time based payload
+  // HOTP is HMAC with a truncation function to get a short decimal key
+  unix_time = get_epoch_seconds();
+  sha1_time[4] = (unix_time >> 24) & 0xFF;
+  sha1_time[5] = (unix_time >> 16) & 0xFF;
+  sha1_time[6] = (unix_time >> 8) & 0xFF;
+  sha1_time[7] = unix_time & 0xFF;
+
+  // First get the HMAC hash of the time payload with the shared key
+  sha1_initHmac(&s, otpkeys[index], otpsizes[index]);
+  sha1_write(&s, sha1_time, 8);
+  sha1_resultHmac(&s);
+  
+  // Then do the HOTP truncation.  HOTP pulls its result from a 31-bit byte
+  // aligned window in the HMAC result, then lops off digits to the left
+  // over 6 digits.
+  ofs=s.state.b[SHA1_SIZE-1] & 0xf;
+  otp = 0;
+  otp = ((s.state.b[ofs] & 0x7f) << 24) |
+    ((s.state.b[ofs + 1] & 0xff) << 16) |
+    ((s.state.b[ofs + 2] & 0xff) << 8) |
+    (s.state.b[ofs + 3] & 0xff);
+  otp %= DIGITS_TRUNCATE;
+  
+  // Convert result into a string.  Sure wish we had working snprintf...
+  for(i = 0; i < 6; i++) {
+    text[5-i] = 0x30 + (otp % 10);
+    otp /= 10;
+  }
+  text[6]=0;
+}
 
 void handle_second_tick(AppContextRef ctx, PebbleTickEvent *t) {
 
 	(void)t;
 	(void)ctx;
 
-	static char tokenText[] = "RYRYRY"; // Needs to be static because it's used by the system later.
+	static char token0Text[] = "RYRYRY"; // Needs to be static because it's used by the system later.
+	static char token1Text[] = "RYRYRY"; // Needs to be static because it's used by the system later.
 
-	sha1nfo s;
-	uint8_t ofs;
-	uint32_t otp;
-	int i;
-	uint32_t unix_time;
-	char sha1_time[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
 	PblTm curTime;
 	get_time(&curTime);
@@ -279,42 +315,16 @@ void handle_second_tick(AppContextRef ctx, PebbleTickEvent *t) {
 	{
 		changed = false;
 
-		// TOTP uses seconds since epoch in the upper half of an 8 byte payload
-		// TOTP is HOTP with a time based payload
-		// HOTP is HMAC with a truncation function to get a short decimal key
-		unix_time = get_epoch_seconds();
-		sha1_time[4] = (unix_time >> 24) & 0xFF;
-		sha1_time[5] = (unix_time >> 16) & 0xFF;
-		sha1_time[6] = (unix_time >> 8) & 0xFF;
-		sha1_time[7] = unix_time & 0xFF;
+    get_token(0, token0Text);
+    get_token(1, token1Text);
 
-		// First get the HMAC hash of the time payload with the shared key
-		sha1_initHmac(&s, otpkeys[curToken], otpsizes[curToken]);
-		sha1_write(&s, sha1_time, 8);
-		sha1_resultHmac(&s);
-		
-		// Then do the HOTP truncation.  HOTP pulls its result from a 31-bit byte
-		// aligned window in the HMAC result, then lops off digits to the left
-		// over 6 digits.
-		ofs=s.state.b[SHA1_SIZE-1] & 0xf;
-		otp = 0;
-		otp = ((s.state.b[ofs] & 0x7f) << 24) |
-			((s.state.b[ofs + 1] & 0xff) << 16) |
-			((s.state.b[ofs + 2] & 0xff) << 8) |
-			(s.state.b[ofs + 3] & 0xff);
-		otp %= DIGITS_TRUNCATE;
-		
-		// Convert result into a string.  Sure wish we had working snprintf...
-		for(i = 0; i < 6; i++) {
-			tokenText[5-i] = 0x30 + (otp % 10);
-			otp /= 10;
-		}
-		tokenText[6]=0;
+		char *label0Text = otplabels[0];
+		char *label1Text = otplabels[1];
 
-		char *labelText = otplabels[curToken];
-
-		text_layer_set_text(&label, labelText);
-		text_layer_set_text(&token, tokenText);
+		text_layer_set_text(&label0, label0Text);
+		text_layer_set_text(&token0, token0Text);
+		text_layer_set_text(&label1, label1Text);
+		text_layer_set_text(&token1, token1Text);
 	}
 
 	if ((curSeconds>=0) && (curSeconds<30)) {
@@ -325,23 +335,11 @@ void handle_second_tick(AppContextRef ctx, PebbleTickEvent *t) {
 }
 
 void up_single_click_handler(ClickRecognizerRef recognizer, Window *window) {
-	if (curToken==0) {
-		curToken=NUM_SECRETS-1;
-	} else {
-		curToken--;
-	};
 	changed = true;
 	handle_second_tick(NULL,NULL);
 }
 
 void down_single_click_handler(ClickRecognizerRef recognizer, Window *window) {
-  (void)recognizer;
-  (void)window;
-	if ((curToken+1)==NUM_SECRETS) {
-		curToken=0;
-	} else {
-		curToken++;
-	};
 	changed = true;
 	handle_second_tick(NULL,NULL);
 }
@@ -376,26 +374,38 @@ void handle_init(AppContextRef ctx) {
 	window_set_background_color(&window, GColorBlack);
 
 	// Init the identifier label
-	text_layer_init(&label, GRect(5, 30, 144-4, 168-44));
-	text_layer_set_text_color(&label, GColorWhite);
-	text_layer_set_background_color(&label, GColorClear);
-	text_layer_set_font(&label, fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD));
+	text_layer_init(&label0, GRect(5, 0, 144-4, 168-44));
+	text_layer_set_text_color(&label0, GColorWhite);
+	text_layer_set_background_color(&label0, GColorClear);
+	text_layer_set_font(&label0, fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD));
+
+	text_layer_init(&label1, GRect(5, 60, 144-4, 168-44));
+	text_layer_set_text_color(&label1, GColorWhite);
+	text_layer_set_background_color(&label1, GColorClear);
+	text_layer_set_font(&label1, fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD));
 
 	// Init the token label
-	text_layer_init(&token, GRect(10, 60, 144-4 /* width */, 168-44 /* height */));
-	text_layer_set_text_color(&token, GColorWhite);
-	text_layer_set_background_color(&token, GColorClear);
-	text_layer_set_font(&token, fonts_get_system_font(FONT_KEY_BITHAM_34_MEDIUM_NUMBERS));
+	text_layer_init(&token0, GRect(10, 25, 144-4 /* width */, 168-44 /* height */));
+	text_layer_set_text_color(&token0, GColorWhite);
+	text_layer_set_background_color(&token0, GColorClear);
+	text_layer_set_font(&token0, fonts_get_system_font(FONT_KEY_BITHAM_34_MEDIUM_NUMBERS));
+
+	text_layer_init(&token1, GRect(10, 85, 144-4 /* width */, 168-44 /* height */));
+	text_layer_set_text_color(&token1, GColorWhite);
+	text_layer_set_background_color(&token1, GColorClear);
+	text_layer_set_font(&token1, fonts_get_system_font(FONT_KEY_BITHAM_34_MEDIUM_NUMBERS));
 
 	// Init the second ticker
-	text_layer_init(&ticker, GRect(60, 120, 144-4 /* width */, 168-44 /* height */));
+	text_layer_init(&ticker, GRect(60, 140, 144-4 /* width */, 168-44 /* height */));
 	text_layer_set_text_color(&ticker, GColorWhite);
 	text_layer_set_background_color(&ticker, GColorClear);
 	text_layer_set_font(&ticker, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
 
 	handle_second_tick(ctx, NULL);
-	layer_add_child(&window.layer, &label.layer);
-	layer_add_child(&window.layer, &token.layer);
+	layer_add_child(&window.layer, &label0.layer);
+	layer_add_child(&window.layer, &label1.layer);
+	layer_add_child(&window.layer, &token0.layer);
+	layer_add_child(&window.layer, &token1.layer);
 	layer_add_child(&window.layer, &ticker.layer);
 
 	window_set_click_config_provider(&window, (ClickConfigProvider) click_config_provider);
